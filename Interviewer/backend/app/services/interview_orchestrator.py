@@ -1,11 +1,11 @@
 """
-Turn-based interview: AI asks (text + audio) → user speaks → answer shown → next question.
+Turn-based interview: AI asks (text + audio), user answers, then the next question is asked.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
 from app.services.llama_client import generate_followup, generate_opening_question
 from app.services.tts import synthesize_wav_base64
@@ -14,14 +14,13 @@ from app.workers.pool import run_in_worker
 from app.workers.whisper_client import transcribe_pcm
 
 SAMPLE_RATE = 16000
-# ~2 chunks × 1.5s silence after speech = end of answer
 SILENCE_CHUNKS_TO_END = 2
-MAX_TURNS = 5
+MAX_TURNS = 10
 
 
 @dataclass
 class InterviewTurnState:
-    phase: str = "idle"  # asking | listening | processing
+    phase: str = "idle"
     turn_index: int = 0
     max_turns: int = MAX_TURNS
     current_question: str = ""
@@ -59,11 +58,16 @@ async def start_interview_turns(
     send: Callable[[dict], Awaitable[None]],
 ) -> None:
     """Ask the first question after WebSocket connects."""
+    from app.session_manager import get_interview_session
+
+    sess = get_interview_session(session_id)
+    language = sess.language if sess else "en"
     state = get_orchestrator(session_id)
     state.phase = "asking"
     state.turn_index = 0
+    state.max_turns = (sess.question_count if sess else MAX_TURNS) or MAX_TURNS
     state.qa_history = []
-    question = generate_opening_question(job_title)
+    question = generate_opening_question(job_title, language=language)
     await _emit_question(session_id, state, question, send)
 
 
@@ -81,14 +85,23 @@ async def _emit_question(
     state.had_speech = False
 
     from app.session_manager import get_interview_session
+
     sess = get_interview_session(session_id)
     voice = (sess.voice_preset if sess else None) or "Jasper"
-    audio_b64, tts_engine = await run_in_worker(synthesize_wav_base64, question, voice)
+    language = (sess.language if sess else "en")
+    audio_b64, tts_engine = await run_in_worker(
+        synthesize_wav_base64,
+        question,
+        voice,
+        language,
+    )
     await send({
         "type": "interview.question",
         "session_id": session_id,
         "turn_index": state.turn_index,
+        "total_turns": state.max_turns,
         "text": question,
+        "language": language,
         "audio_base64": audio_b64,
         "audio_format": "wav" if audio_b64 else None,
         "tts_engine": tts_engine,
@@ -97,13 +110,17 @@ async def _emit_question(
 
 
 async def on_listen_start(session_id: str, send: Callable[[dict], Awaitable[None]]) -> None:
+    from app.session_manager import get_interview_session
+
     state = get_orchestrator(session_id)
+    sess = get_interview_session(session_id)
+    is_fr = bool(sess and sess.language == "fr")
     state.phase = "listening"
     await send({
         "type": "interview.phase",
         "session_id": session_id,
         "phase": "listening",
-        "message": "Your turn — speak your answer.",
+        "message": "A vous de repondre." if is_fr else "Your turn - speak your answer.",
     })
 
 
@@ -146,21 +163,27 @@ async def _finalize_answer(
     job_title: str,
     send: Callable[[dict], Awaitable[None]],
 ) -> None:
+    from app.session_manager import get_interview_session
+
     state = get_orchestrator(session_id)
     if state.phase != "listening":
         return
+
+    sess = get_interview_session(session_id)
+    language = (sess.language if sess else "en")
+    is_fr = language == "fr"
     state.phase = "processing"
     await send({
         "type": "interview.phase",
         "session_id": session_id,
         "phase": "processing",
-        "message": "Processing your answer…",
+        "message": "Traitement de votre reponse..." if is_fr else "Processing your answer...",
     })
 
     pcm = bytes(state.answer_pcm)
     asr = {}
     if len(pcm) >= SAMPLE_RATE:
-        asr = await run_in_worker(transcribe_pcm, pcm, SAMPLE_RATE)
+        asr = await run_in_worker(transcribe_pcm, pcm, SAMPLE_RATE, language)
         answer_text = (asr.get("text") or "").strip()
     else:
         answer_text = ""
@@ -172,11 +195,18 @@ async def _finalize_answer(
         if asr_engine := (asr.get("engine") if len(pcm) >= SAMPLE_RATE else "none"):
             if asr_engine in ("none", "mock"):
                 answer_text = (
-                    "(Speech not recognized. Install: pip install faster-whisper, "
-                    "set MOCK_ASR=false, restart server, speak 5+ seconds clearly.)"
+                    "(Parole non reconnue. Installez faster-whisper, redemarrez le serveur, "
+                    "et parlez clairement pendant au moins cinq secondes.)"
+                    if is_fr else
+                    "(Speech not recognized. Install faster-whisper, restart the server, "
+                    "and speak clearly for at least five seconds.)"
                 )
     if not answer_text:
-        answer_text = "(No speech detected — speak louder or longer, then click I'm done speaking.)"
+        answer_text = (
+            "(Aucune parole detectee - parlez plus fort ou plus longtemps, puis cliquez sur J'ai fini.)"
+            if is_fr else
+            "(No speech detected - speak louder or longer, then click I'm done speaking.)"
+        )
 
     state.qa_history.append({
         "turn_index": state.turn_index,
@@ -198,7 +228,7 @@ async def _finalize_answer(
             "type": "interview.complete",
             "session_id": session_id,
             "turns": state.qa_history,
-            "message": "Interview complete. Click End & score.",
+            "message": "Entretien termine. Cliquez sur Terminer et noter." if is_fr else "Interview complete. Click End & score.",
         })
         state.phase = "idle"
         return
@@ -207,7 +237,13 @@ async def _finalize_answer(
     context = " ".join(
         f"Q: {t['question']} A: {t['answer']}" for t in state.qa_history
     )
-    next_q = generate_followup(job_title, answer_text, context, asked_questions=asked)
+    next_q = generate_followup(
+        job_title,
+        answer_text,
+        context,
+        asked_questions=asked,
+        language=language,
+    )
     await _emit_question(session_id, state, next_q, send)
 
 

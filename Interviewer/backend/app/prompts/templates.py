@@ -9,8 +9,9 @@ MCQ_GENERATION_PROMPT = (
 
 OPENING_QUESTION_PROMPT = (
     "You are a professional interviewer for the role: {job_title}. "
+    "Language: {language_name}. "
     "Ask one clear opening interview question (technical or behavioral). "
-    "Output only the question sentence, under 30 words, no preamble."
+    "Output only the question sentence in {language_name}, under 30 words, no preamble."
 )
 
 FOLLOWUP_PROMPT = (
@@ -18,7 +19,7 @@ FOLLOWUP_PROMPT = (
     "'{answer}' and the transcript context: '{context}'. "
     "Already asked (do NOT repeat or rephrase these): {asked}. "
     "Generate one NEW concise follow-up question that probes a different angle. "
-    "Under 25 words. Output only the question sentence."
+    "Use {language_name}. Under 25 words. Output only the question sentence."
 )
 
 CONTENT_SCORING_PROMPT = (
@@ -32,12 +33,23 @@ def build_mcq_prompt(job_title: str) -> str:
     return MCQ_GENERATION_PROMPT.format(job_title=job_title)
 
 
-def build_opening_question_prompt(job_title: str) -> str:
-    return OPENING_QUESTION_PROMPT.format(job_title=job_title)
+def _language_name(language: str) -> str:
+    return "French" if language == "fr" else "English"
+
+
+def build_opening_question_prompt(job_title: str, language: str = "en") -> str:
+    return OPENING_QUESTION_PROMPT.format(
+        job_title=job_title,
+        language_name=_language_name(language),
+    )
 
 
 def build_followup_prompt(
-    job_title: str, answer: str, context: str, asked: list[str] | None = None
+    job_title: str,
+    answer: str,
+    context: str,
+    asked: list[str] | None = None,
+    language: str = "en",
 ) -> str:
     asked_txt = " | ".join((asked or [])[-8:]) or "(none)"
     return FOLLOWUP_PROMPT.format(
@@ -45,6 +57,7 @@ def build_followup_prompt(
         answer=answer[:500],
         context=context[:1500],
         asked=asked_txt[:1200],
+        language_name=_language_name(language),
     )
 
 

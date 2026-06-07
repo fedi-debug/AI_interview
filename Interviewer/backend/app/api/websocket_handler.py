@@ -35,6 +35,8 @@ def _recover_session(session_id: str):
             row.job_title or "Software Engineer",
             consent=bool(row.consent_given),
             voice_preset=meta.get("voice_preset", "Jasper"),
+            language=meta.get("language", "en"),
+            question_count=int(meta.get("question_count", 10)),
         )
 
 

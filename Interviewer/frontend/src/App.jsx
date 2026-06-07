@@ -79,6 +79,7 @@ function playQuestionAudio(msg, onDone) {
   if (msg.use_browser_tts !== false && window.speechSynthesis) {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(msg.text);
+    u.lang = msg.language === 'fr' ? 'fr-FR' : 'en-US';
     u.rate = 1;
     u.onend = onDone;
     u.onerror = onDone;
@@ -92,6 +93,8 @@ function playQuestionAudio(msg, onDone) {
 export default function App() {
   const [consent, setConsent] = useState(false);
   const [jobTitle, setJobTitle] = useState('Software Engineer');
+  const [language, setLanguage] = useState('en');
+  const [questionCount, setQuestionCount] = useState(10);
   const [sessionId, setSessionId] = useState(null);
   const [phase, setPhase] = useState('idle'); // idle | asking | listening | processing
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -251,7 +254,7 @@ export default function App() {
       if (msg.type === 'interview.question') {
         canStreamAudioRef.current = false;
         setPhase('asking');
-        setCurrentQuestion({ turn: msg.turn_index, text: msg.text });
+        setCurrentQuestion({ turn: msg.turn_index, total: msg.total_turns, text: msg.text });
         setListeningHint('');
         questionAudioRef.current = playQuestionAudio(msg, () => {
           setPhase('listening');
@@ -317,6 +320,8 @@ export default function App() {
           job_title: jobTitle,
           consent: true,
           voice_preset: voicePreset,
+          language,
+          question_count: Number(questionCount),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -364,7 +369,7 @@ export default function App() {
       setStatus('error');
       stopMedia();
     }
-  }, [consent, jobTitle, voicePreset, setupAudio, setupVideo, stopMedia, handleWsMessage]);
+  }, [consent, jobTitle, language, questionCount, voicePreset, setupAudio, setupVideo, stopMedia, handleWsMessage]);
 
   const endInterview = async () => {
     if (!sessionId) return;
@@ -412,6 +417,32 @@ export default function App() {
       <div className="card">
         <label>
           Job: <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+        </label>
+        <br />
+        <br />
+        <label>
+          Interview language:{' '}
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            disabled={status === 'live' || status === 'starting'}
+          >
+            <option value="en">English</option>
+            <option value="fr">French</option>
+          </select>
+        </label>
+        <br />
+        <br />
+        <label>
+          Questions:{' '}
+          <input
+            type="number"
+            min="3"
+            max="20"
+            value={questionCount}
+            onChange={(e) => setQuestionCount(e.target.value)}
+            disabled={status === 'live' || status === 'starting'}
+          />
         </label>
         <br />
         <br />
@@ -474,7 +505,10 @@ export default function App() {
 
       {currentQuestion && (
         <div className="card question-card">
-          <h3>Interviewer asks</h3>
+          <h3>
+            Interviewer asks Q{currentQuestion.turn + 1}
+            {currentQuestion.total ? `/${currentQuestion.total}` : ''}
+          </h3>
           <p className="question-text">{currentQuestion.text}</p>
           {phase === 'asking' && <span className="badge">Playing question…</span>}
         </div>

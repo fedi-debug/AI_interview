@@ -16,13 +16,19 @@ class InterviewSession:
     active: bool = True
     consent_given: bool = False
     voice_preset: str = "Jasper"
+    language: str = "en"
+    question_count: int = 10
 
 
 _sessions: dict[str, InterviewSession] = {}
 
 
 def create_interview_session(
-    job_title: str, consent: bool = False, voice_preset: str = "Jasper"
+    job_title: str,
+    consent: bool = False,
+    voice_preset: str = "Jasper",
+    language: str = "en",
+    question_count: int = 10,
 ) -> InterviewSession:
     sid = str(uuid.uuid4())
     sess = InterviewSession(
@@ -30,6 +36,8 @@ def create_interview_session(
         job_title=job_title,
         consent_given=consent,
         voice_preset=voice_preset or "Jasper",
+        language=language if language in {"en", "fr"} else "en",
+        question_count=max(3, min(question_count, 20)),
     )
     _sessions[sid] = sess
     return sess
@@ -44,6 +52,8 @@ def restore_interview_session(
     job_title: str,
     consent: bool = False,
     voice_preset: str = "Jasper",
+    language: str = "en",
+    question_count: int = 10,
 ) -> InterviewSession:
     """Re-register a session after server reload (in-memory map cleared)."""
     sess = InterviewSession(
@@ -51,6 +61,8 @@ def restore_interview_session(
         job_title=job_title,
         consent_given=consent,
         voice_preset=voice_preset,
+        language=language if language in {"en", "fr"} else "en",
+        question_count=max(3, min(question_count, 20)),
     )
     _sessions[session_id] = sess
     return sess

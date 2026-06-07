@@ -9,6 +9,7 @@ from threading import Lock
 from typing import Optional
 
 import soundfile as sf
+from phonemizer.backend import EspeakBackend
 
 from app.config import get_settings
 from app.services.kittentts_voices import DEFAULT_VOICE, normalize_voice_id
@@ -18,6 +19,12 @@ SAMPLE_RATE = 24_000
 _kitten_model = None
 _kitten_model_key: str | None = None
 _kitten_lock = Lock()
+_phonemizer_language: str | None = None
+
+PHONEMIZER_LANGUAGES = {
+    "en": "en-us",
+    "fr": "fr-fr",
+}
 
 
 def resolve_tts_engine(voice_preset: str | None = None) -> str:
@@ -49,11 +56,29 @@ def _load_kittentts_model():
     return _kitten_model
 
 
-def _synthesize_kittentts(text: str, voice_preset: str | None = None) -> Optional[bytes]:
+def _set_model_language(model, language: str) -> None:
+    global _phonemizer_language
+    phonemizer_language = PHONEMIZER_LANGUAGES.get(language, "en-us")
+    if _phonemizer_language == phonemizer_language:
+        return
+    model.model.phonemizer = EspeakBackend(
+        language=phonemizer_language,
+        preserve_punctuation=True,
+        with_stress=True,
+    )
+    _phonemizer_language = phonemizer_language
+
+
+def _synthesize_kittentts(
+    text: str,
+    voice_preset: str | None = None,
+    language: str = "en",
+) -> Optional[bytes]:
     voice = normalize_voice_id(voice_preset)
     with _kitten_lock:
         model = _load_kittentts_model()
-        audio = model.generate(text, voice=voice, speed=1.0, clean_text=True)
+        _set_model_language(model, language)
+        audio = model.generate(text, voice=voice, speed=1.0, clean_text=(language == "en"))
 
     buf = io.BytesIO()
     sf.write(buf, audio, SAMPLE_RATE, format="WAV")
@@ -62,7 +87,9 @@ def _synthesize_kittentts(text: str, voice_preset: str | None = None) -> Optiona
 
 
 def synthesize_wav_base64(
-    text: str, voice_preset: str | None = None
+    text: str,
+    voice_preset: str | None = None,
+    language: str = "en",
 ) -> tuple[Optional[str], str]:
     """
     Returns (base64_wav_or_none, engine_label).
@@ -78,7 +105,7 @@ def synthesize_wav_base64(
 
     if engine == "kittentts":
         try:
-            wav = _synthesize_kittentts(text, preset)
+            wav = _synthesize_kittentts(text, preset, language)
         except Exception as exc:
             print(f"KittenTTS synthesis failed: {exc}")
             return None, "kittentts:error"

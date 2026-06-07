@@ -19,6 +19,8 @@ class ConsentRequest(BaseModel):
     candidate_id: str | None = None
     consent: bool = False
     voice_preset: str = "Jasper"  # Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo
+    language: str = Field("en", pattern="^(en|fr)$")
+    question_count: int = Field(10, ge=3, le=20)
 
 
 @router.get("/voices")
@@ -48,16 +50,29 @@ async def start_interview(body: ConsentRequest) -> dict[str, Any]:
     from app.services.kittentts_voices import normalize_voice_id
 
     voice = normalize_voice_id(body.voice_preset)
-    sess = create_interview_session(body.job_title, consent=True, voice_preset=voice)
+    sess = create_interview_session(
+        body.job_title,
+        consent=True,
+        voice_preset=voice,
+        language=body.language,
+        question_count=body.question_count,
+    )
     db.save_session(
         sess.session_id, "interview", body.job_title,
         candidate_id=body.candidate_id, consent=True,
-        metadata={"human_review_required": True, "voice_preset": voice},
+        metadata={
+            "human_review_required": True,
+            "voice_preset": voice,
+            "language": body.language,
+            "question_count": body.question_count,
+        },
     )
     return {
         "session_id": sess.session_id,
         "job_title": body.job_title,
         "voice_preset": voice,
+        "language": body.language,
+        "question_count": body.question_count,
         "ws_url": f"/ws/interview/{sess.session_id}",
         "message": "Connect WebSocket to stream audio/video.",
     }
@@ -68,7 +83,12 @@ async def followup(session_id: str, body: FollowupRequest) -> dict[str, str]:
     sess = get_interview_session(session_id)
     if not sess:
         raise HTTPException(404, "Session not found")
-    q = generate_followup(sess.job_title, body.answer, body.context or sess.transcript_context)
+    q = generate_followup(
+        sess.job_title,
+        body.answer,
+        body.context or sess.transcript_context,
+        language=sess.language,
+    )
     return {"session_id": session_id, "followup_question": q}
 
 
@@ -93,6 +113,9 @@ async def end_interview(
     report = fuse_scores(content, audio_feats, video_feats)
     report["session_id"] = session_id
     report["job_title"] = job_title
+    if sess:
+        report["language"] = sess.language
+        report["question_count"] = sess.question_count
     report["human_review_required"] = True
     db.save_report(session_id, report)
     return report

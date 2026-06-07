@@ -30,14 +30,18 @@ def _get_faster_whisper():
     return _faster_whisper_model
 
 
-def _transcribe_faster_whisper(pcm_int16: bytes, sample_rate: int = 16000) -> dict:
+def _transcribe_faster_whisper(
+    pcm_int16: bytes,
+    sample_rate: int = 16000,
+    language: str = "en",
+) -> dict:
     audio = _pcm_to_float32(pcm_int16)
     if len(audio) < sample_rate * 0.25:
         return {"text": "", "confidence": 0.0, "engine": "faster_whisper"}
     model = _get_faster_whisper()
     segments, info = model.transcribe(
         audio,
-        language="en",
+        language="fr" if language == "fr" else "en",
         vad_filter=True,
         beam_size=1,
     )
@@ -97,7 +101,7 @@ def resolve_asr_engine() -> str:
     return "none"
 
 
-def transcribe_pcm(pcm_int16: bytes, sample_rate: int = 16000) -> dict:
+def transcribe_pcm(pcm_int16: bytes, sample_rate: int = 16000, language: str = "en") -> dict:
     """
     Transcribe 16-bit mono PCM → {"text", "confidence", "engine"}.
     """
@@ -106,7 +110,7 @@ def transcribe_pcm(pcm_int16: bytes, sample_rate: int = 16000) -> dict:
         return _mock_asr(pcm_int16)
     if engine == "faster_whisper":
         try:
-            return _transcribe_faster_whisper(pcm_int16, sample_rate)
+            return _transcribe_faster_whisper(pcm_int16, sample_rate, language)
         except Exception as e:
             return {"text": "", "confidence": 0.0, "engine": "error", "error": str(e)}
     if engine == "whisper_cpp":
