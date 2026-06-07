@@ -1,0 +1,9 @@
+espeakng_loader
+phonemizer
+onnxruntime
+soundfile
+numpy
+huggingface_hub
+fastapi
+uvicorn[standard]
+python-multipart

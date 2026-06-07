@@ -1,0 +1,27 @@
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+websockets>=12.0
+aiosqlite>=0.19.0
+sqlalchemy>=2.0.25
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+# webrtcvad requires MSVC on Windows; optional — energy VAD fallback used if missing
+# webrtcvad>=2.0.10
+numpy>=1.24.0
+opencv-python-headless>=4.8.0
+mediapipe>=0.10.9
+librosa>=0.10.1
+soundfile>=0.12.1
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+httpx>=0.26.0
+python-dotenv>=1.0.0
+pyttsx3>=2.90
+# Real local speech recognition (recommended — set MOCK_ASR=false)
+faster-whisper>=1.0.0
+# Natural local TTS voice
+https://github.com/KittenML/KittenTTS/releases/download/0.8.1/kittentts-0.8.1-py3-none-any.whl
+
+# Optional: parselmouth for prosody fallback (install if openSMILE unavailable)
+# praat-parselmouth>=0.4.3
